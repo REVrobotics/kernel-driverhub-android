@@ -51,6 +51,7 @@ modules.builtin
 /boot.img
 /kernel.img
 /resource.img
+/resource-no-battery.img
 /zboot.img
 /tags
 /TAGS
