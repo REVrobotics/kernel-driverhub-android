@@ -681,7 +681,7 @@
 		irq-gpio = <&gpio2 RK_PB0 IRQ_TYPE_LEVEL_LOW>;
 		irq_enable = <1>;
 		poll_delay_ms = <30>;
-		layout = <1>;
+		layout = <3>;
     };
 };
 
@@ -700,7 +700,7 @@
 		max-x = <800>;
 		max-y = <480>;
 		tp-size = <912>;			// 89 101 911 912:lx
-		revert-x-y = <0>;			// 1: revert x, 2: revert y, 3: revert both x & y
+		revert-x-y = <3>;			// 1: revert x, 2: revert y, 3: revert both x & y
 	};
 
     hym8563: hym8563@51 {

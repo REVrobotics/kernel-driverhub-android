@@ -118,6 +118,12 @@ static int hym8563_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	tm->tm_mon = bcd2bin(buf[5] & HYM8563_MONTH_MASK) - 1; /* 0 = Jan */
 	tm->tm_year = bcd2bin(buf[6]) + 100;
 
+	/* Years >= 2037 are to far in the future, 19XX is to early */
+	if (tm->tm_year < 100 || tm->tm_year >= 138){
+		dev_info(&client->dev, "rtc year %d, return error\n", tm->tm_year + 1900);
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -128,9 +134,11 @@ static int hym8563_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	u8 buf[7];
 	int ret;
 
-	/* Years >= 2100 are to far in the future, 19XX is to early */
-	if (tm->tm_year < 100 || tm->tm_year >= 200)
+	/* Years >= 2037 are to far in the future, 19XX is to early */
+	if (tm->tm_year < 100 || tm->tm_year >= 138){
+		dev_info(&client->dev, "rtc year %d, return error\n", tm->tm_year + 1900);
 		return -EINVAL;
+	}
 
 	buf[0] = bin2bcd(tm->tm_sec);
 	buf[1] = bin2bcd(tm->tm_min);
