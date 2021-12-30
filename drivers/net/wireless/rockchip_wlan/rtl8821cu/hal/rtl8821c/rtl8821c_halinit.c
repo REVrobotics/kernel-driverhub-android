@@ -28,11 +28,13 @@ void init_hal_spec_rtl8821c(PADAPTER adapter)
 	hal_spec->ic_name = "rtl8821c";
 	hal_spec->macid_num = 128;
 	/* hal_spec->sec_cam_ent_num follow halmac setting */
-	hal_spec->sec_cap = SEC_CAP_CHK_BMC;
+	hal_spec->sec_cap = SEC_CAP_CHK_BMC | SEC_CAP_CHK_EXTRA_SEC;
+	hal_spec->macid_cap = MACID_DROP;
 
 	hal_spec->rfpath_num_2g = 2;
 	hal_spec->rfpath_num_5g = 1;
-	hal_spec->rf_reg_path_num = 1;
+	hal_spec->rf_reg_path_num = hal_spec->rf_reg_path_avail_num = 1;
+	hal_spec->rf_reg_trx_path_bmp = 0x11;
 	hal_spec->max_tx_cnt = 1;
 
 	hal_spec->tx_nss_num = 1;
@@ -52,9 +54,7 @@ void init_hal_spec_rtl8821c(PADAPTER adapter)
 			    | WL_FUNC_TDLS
 			    ;
 
-#if CONFIG_TX_AC_LIFETIME
 	hal_spec->tx_aclt_unit_factor = 8;
-#endif
 
 	hal_spec->rx_tsf_filter = 1;
 
@@ -66,6 +66,12 @@ void init_hal_spec_rtl8821c(PADAPTER adapter)
 		, REG_MACID_SLEEP1_8821C
 		, REG_MACID_SLEEP2_8821C
 		, REG_MACID_SLEEP3_8821C);
+	
+	rtw_macid_ctl_init_drop_reg(adapter_to_macidctl(adapter)
+		, REG_MACID_DROP0_8821C
+		, REG_MACID_DROP1_8821C
+		, REG_MACID_DROP2_8821C
+		, REG_MACID_DROP3_8821C);
 }
 
 u32 rtl8821c_power_on(PADAPTER adapter)
@@ -122,6 +128,10 @@ void rtl8821c_power_off(PADAPTER adapter)
 	rtw_hal_get_hwreg(adapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
 	if (bMacPwrCtrlOn == _FALSE)
 		goto out;
+	
+	bMacPwrCtrlOn = _FALSE;
+	rtw_hal_set_hwreg(adapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
+	GET_HAL_DATA(adapter)->bFWReady = _FALSE;
 
 	err = rtw_halmac_poweroff(d);
 	if (err) {
@@ -130,10 +140,7 @@ void rtl8821c_power_off(PADAPTER adapter)
 		goto out;
 	}
 
-	bMacPwrCtrlOn = _FALSE;
-	rtw_hal_set_hwreg(adapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
-
-	GET_HAL_DATA(adapter)->bFWReady = _FALSE;
+	
 
 out:
 	return;
@@ -237,7 +244,7 @@ void rtl8821c_hal_init_misc(PADAPTER adapter)
 #endif /*CONFIG_XMIT_ACK*/
 
 	/*Disable BAR, suggested by Scott */
-	rtw_write32(adapter, REG_BAR_MODE_CTRL_8821C, 0x0201ffff);
+	rtw_write32(adapter, REG_BAR_MODE_CTRL_8821C, 0x01ffff|rtw_read8(adapter,REG_RA_TRY_RATE_AGG_LMT_8821C)<<24);
 	/*Disable secondary CCA 20M,40M?*/
 	rtw_write8(adapter, REG_MISC_CTRL_8821C, 0x03);
 
@@ -320,9 +327,6 @@ void rtl8821c_init_default_value(PADAPTER adapter)
 
 	/* init default value */
 	hal->fw_ractrl = _FALSE;
-
-	if (!adapter_to_pwrctl(adapter)->bkeepfwalive)
-		hal->LastHMEBoxNum = 0;
 
 	/* init phydm default value */
 	hal->bIQKInitialized = _FALSE;

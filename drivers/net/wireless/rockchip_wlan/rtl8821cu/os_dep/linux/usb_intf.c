@@ -16,7 +16,7 @@
 
 #include <drv_types.h>
 #include <hal_data.h>
-#include <linux/rfkill-wlan.h>
+
 #include <platform_ops.h>
 
 #ifndef CONFIG_USB_HCI
@@ -33,9 +33,6 @@ extern int rtw_ampdu_enable;/* for enable tx_ampdu */
 int ui_pid[3] = {0, 0, 0};
 #endif
 
-extern int get_wifi_chip_type(void);
-extern int rockchip_wifi_power(int on);
-extern int rockchip_wifi_set_carddetect(int val);
 
 extern int pm_netdev_open(struct net_device *pnetdev, u8 bnormal);
 static int rtw_suspend(struct usb_interface *intf, pm_message_t message);
@@ -65,7 +62,7 @@ static void rtw_dev_shutdown(struct device *dev)
 					#ifdef CONFIG_GPIO_WAKEUP
 					/*default wake up pin change to BT*/
 					RTW_INFO("%s:default wake up pin change to BT\n", __FUNCTION__);
-					rtw_hal_switch_gpio_wl_ctrl(adapter, WAKEUP_GPIO_IDX, _FALSE);
+					rtw_hal_switch_gpio_wl_ctrl(adapter, pwrctl->wowlan_gpio_index, _FALSE);
 					#endif /* CONFIG_GPIO_WAKEUP */
 
 					if (pwrctl->wowlan_mode == _TRUE)
@@ -73,6 +70,10 @@ static void rtw_dev_shutdown(struct device *dev)
 					else
 					#endif
 					{
+						#ifdef CONFIG_BT_COEXIST
+						RTW_INFO("%s call halt notify\n", __FUNCTION__);
+						rtw_btcoex_HaltNotify(adapter);
+						#endif
 						rtw_hal_deinit(adapter);
 						rtw_set_surprise_removed(adapter);
 					}
@@ -263,7 +264,9 @@ static struct usb_device_id rtw_usb_id_tbl[] = {
 	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xC82A, 0xff, 0xff, 0xff), .driver_info = RTL8821C}, /* 8821CU */
 	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xC82B, 0xff, 0xff, 0xff), .driver_info = RTL8821C}, /* 8821CU */
 	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xC811, 0xff, 0xff, 0xff), .driver_info = RTL8821C}, /* 8811CU */
-	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0x8811, 0xff, 0xff, 0xff), .driver_info = RTL8821C}, /* 8811CU */	
+	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0x8811, 0xff, 0xff, 0xff), .driver_info = RTL8821C}, /* 8811CU */
+	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0x8731, 0xff, 0xff, 0xff), .driver_info = RTL8821C}, /* 8731AU */
+	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xC80C, 0xff, 0xff, 0xff), .driver_info = RTL8821C}, /* 8821CUH */
 	/*=== Customer ID ===*/
 #endif
 
@@ -275,7 +278,10 @@ static struct usb_device_id rtw_usb_id_tbl[] = {
 #ifdef CONFIG_RTL8822C
 	/*=== Realtek demoboard ===*/
 	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xC82C, 0xff, 0xff, 0xff), .driver_info = RTL8822C}, /* Default ID for USB multi-function */
+	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xC82E, 0xff, 0xff, 0xff), .driver_info = RTL8822C}, /* Default ID for USB multi-function */
 	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xC812, 0xff, 0xff, 0xff), .driver_info = RTL8822C}, /* Default ID for USB Single-function, WiFi only */
+	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xD820, 0xff, 0xff, 0xff), .driver_info = RTL8822C}, /* 21D USB multi-fuction*/
+	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xD82B, 0xff, 0xff, 0xff), .driver_info = RTL8822C}, /* 21D USB Single-fuction, WiFi only*/
 	/*=== Customer ID ===*/
 	{USB_DEVICE_AND_INTERFACE_INFO(0x13b1, 0x0043, 0xff, 0xff, 0xff), .driver_info = RTL8822C}, /* Alpha - Alpha*/
 #endif /* CONFIG_RTL8822C */
@@ -284,6 +290,10 @@ static struct usb_device_id rtw_usb_id_tbl[] = {
 	/*=== Realtek demoboard ===*/
 	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xB814, 0xff, 0xff, 0xff), .driver_info = RTL8814B}, /* Default ID for USB multi-function */
 #endif /* CONFIG_RTL8814B */
+#ifdef CONFIG_RTL8723F
+	/*=== Realtek IC ===*/
+	{USB_DEVICE_AND_INTERFACE_INFO(USB_VENDER_ID_REALTEK, 0xB733, 0xff, 0xff, 0xff), .driver_info = RTL8723F}, 
+#endif
 
 	{}	/* Terminating entry */
 };
@@ -320,9 +330,6 @@ struct rtw_usb_drv usb_drv = {
 	.usbdrv.resume = rtw_resume,
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 22))
 	.usbdrv.reset_resume   = rtw_resume,
-#endif
-#ifdef CONFIG_AUTOSUSPEND
-	.usbdrv.supports_autosuspend = 1,
 #endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19))
@@ -490,6 +497,11 @@ static void rtw_decide_chip_type_by_usb_info(struct dvobj_priv *pdvobjpriv, cons
 	if (pdvobjpriv->chip_type == RTL8814B)
 		rtl8814bu_set_hw_type(pdvobjpriv);
 #endif /* CONFIG_RTL8814B */
+
+#ifdef CONFIG_RTL8723F
+	if (pdvobjpriv->chip_type == RTL8723F)
+		rtl8723fu_set_hw_type(pdvobjpriv);
+#endif /* CONFIG_RTL8723F */
 }
 
 static struct dvobj_priv *usb_dvobj_init(struct usb_interface *usb_intf, const struct usb_device_id *pdid)
@@ -767,6 +779,10 @@ u8 rtw_set_hal_ops(_adapter *padapter)
 		rtl8814bu_set_hal_ops(padapter);
 #endif /* CONFIG_RTL8814B */
 
+#ifdef CONFIG_RTL8723F
+	if (rtw_get_chip_type(padapter) == RTL8723F)
+		rtl8723fu_set_hal_ops(padapter);
+#endif /* CONFIG_RTL8723F */
 
 	if (_FAIL == rtw_hal_ops_check(padapter))
 		return _FAIL;
@@ -883,8 +899,8 @@ int rtw_hw_suspend(_adapter *padapter)
 	/* rtw_indicate_disconnect(padapter); */
 	{
 		struct	mlme_priv *pmlmepriv = &padapter->mlmepriv;
-		if (check_fwstate(pmlmepriv, _FW_LINKED)) {
-			_clr_fwstate_(pmlmepriv, _FW_LINKED);
+		if (check_fwstate(pmlmepriv, WIFI_ASOC_STATE)) {
+			_clr_fwstate_(pmlmepriv, WIFI_ASOC_STATE);
 			rtw_led_control(padapter, LED_CTL_NO_LINK);
 
 			rtw_os_indicate_disconnect(padapter, 0, _FALSE);
@@ -970,21 +986,6 @@ static int rtw_suspend(struct usb_interface *pusb_intf, pm_message_t message)
 		goto exit;
 	}
 
-	if ((padapter->bup) || !rtw_is_drv_stopped(padapter) || !rtw_is_surprise_removed(padapter)) {
-#ifdef CONFIG_AUTOSUSPEND
-		if (pwrpriv->bInternalAutoSuspend) {
-
-#ifdef SUPPORT_HW_RFOFF_DETECTED
-			/* The FW command register update must after MAC and FW init ready. */
-			if ((GET_HAL_DATA(padapter)->bFWReady) && (pwrpriv->bHWPwrPindetect) && (padapter->registrypriv.usbss_enable)) {
-				u8 bOpen = _TRUE;
-				rtw_interface_ps_func(padapter, HAL_USB_SELECT_SUSPEND, &bOpen);
-			}
-#endif/* SUPPORT_HW_RFOFF_DETECTED */
-		}
-#endif/* CONFIG_AUTOSUSPEND */
-	}
-
 	ret =  rtw_suspend_common(padapter);
 
 exit:
@@ -994,9 +995,6 @@ exit:
 int rtw_resume_process(_adapter *padapter)
 {
 	int ret;
-#if defined(CONFIG_BT_COEXIST) && defined(CONFIG_AUTOSUSPEND)
-	int pm_cnt = 0;
-#endif
 	struct pwrctrl_priv *pwrpriv = adapter_to_pwrctl(padapter);
 	struct dvobj_priv *pdvobj = padapter->dvobj;
 	struct debug_priv *pdbgpriv = &pdvobj->drv_dbg;
@@ -1008,24 +1006,6 @@ int rtw_resume_process(_adapter *padapter)
 		return -1;
 	}
 
-#if defined(CONFIG_BT_COEXIST) && defined(CONFIG_AUTOSUSPEND) /* add by amy for 8723as-vau */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32))
-	RTW_INFO("%s...pm_usage_cnt(%d)  pwrpriv->bAutoResume=%x.  ....\n", __func__, atomic_read(&(adapter_to_dvobj(padapter)->pusbintf->pm_usage_cnt)), pwrpriv->bAutoResume);
-	pm_cnt = atomic_read(&(adapter_to_dvobj(padapter)->pusbintf->pm_usage_cnt));
-#else /* kernel < 2.6.32 */
-	RTW_INFO("...pm_usage_cnt(%d).....\n", adapter_to_dvobj(padapter)->pusbintf->pm_usage_cnt);
-	pm_cnt = adapter_to_dvobj(padapter)->pusbintf->pm_usage_cnt;
-#endif /* kernel < 2.6.32 */
-
-	RTW_INFO("pwrpriv->bAutoResume (%x)\n", pwrpriv->bAutoResume);
-	if (_TRUE == pwrpriv->bAutoResume) {
-		pwrpriv->bInternalAutoSuspend = _FALSE;
-		pwrpriv->bAutoResume = _FALSE;
-		RTW_INFO("pwrpriv->bAutoResume (%x)  pwrpriv->bInternalAutoSuspend(%x)\n", pwrpriv->bAutoResume, pwrpriv->bInternalAutoSuspend);
-
-	}
-#endif /* #ifdef CONFIG_BT_COEXIST &CONFIG_AUTOSUSPEND& */
-
 	/*
 	 * Due to usb wow suspend flow will cancel read/write port via intf_stop and
 	 * bReadPortCancel and bWritePortCancel are set _TRUE in intf_stop.
@@ -1036,31 +1016,6 @@ int rtw_resume_process(_adapter *padapter)
 	RTW_ENABLE_FUNC(padapter, DF_TX_BIT);
 
 	ret =  rtw_resume_common(padapter);
-
-#ifdef CONFIG_AUTOSUSPEND
-	if (pwrpriv->bInternalAutoSuspend) {
-#ifdef SUPPORT_HW_RFOFF_DETECTED
-		/* The FW command register update must after MAC and FW init ready. */
-		if ((GET_HAL_DATA(padapter)->bFWReady) && (pwrpriv->bHWPwrPindetect) && (padapter->registrypriv.usbss_enable)) {
-			u8 bOpen = _FALSE;
-			rtw_interface_ps_func(padapter, HAL_USB_SELECT_SUSPEND, &bOpen);
-		}
-#endif
-#ifdef CONFIG_BT_COEXIST /* for 8723as-vau */
-		RTW_INFO("pwrpriv->bAutoResume (%x)\n", pwrpriv->bAutoResume);
-		if (_TRUE == pwrpriv->bAutoResume) {
-			pwrpriv->bInternalAutoSuspend = _FALSE;
-			pwrpriv->bAutoResume = _FALSE;
-			RTW_INFO("pwrpriv->bAutoResume (%x)  pwrpriv->bInternalAutoSuspend(%x)\n", pwrpriv->bAutoResume, pwrpriv->bInternalAutoSuspend);
-		}
-
-#else	/* #ifdef CONFIG_BT_COEXIST */
-		pwrpriv->bInternalAutoSuspend = _FALSE;
-#endif	/* #ifdef CONFIG_BT_COEXIST */
-		pwrpriv->brfoffbyhw = _FALSE;
-	}
-#endif/* CONFIG_AUTOSUSPEND */
-
 
 	return ret;
 }
@@ -1084,30 +1039,24 @@ static int rtw_resume(struct usb_interface *pusb_intf)
 	RTW_INFO("==> %s (%s:%d)\n", __FUNCTION__, current->comm, current->pid);
 	pdbgpriv->dbg_resume_cnt++;
 
-	#ifdef CONFIG_AUTOSUSPEND
-	if (pwrpriv->bInternalAutoSuspend)
+
+	if (pwrpriv->wowlan_mode || pwrpriv->wowlan_ap_mode) {
+		rtw_resume_lock_suspend();
 		ret = rtw_resume_process(padapter);
-	else 
-	#endif
-	{
-		if (pwrpriv->wowlan_mode || pwrpriv->wowlan_ap_mode) {
+		rtw_resume_unlock_suspend();
+	} else {
+#ifdef CONFIG_RESUME_IN_WORKQUEUE
+		rtw_resume_in_workqueue(pwrpriv);
+#else
+		if (rtw_is_earlysuspend_registered(pwrpriv)) {
+			/* jeff: bypass resume here, do in late_resume */
+			rtw_set_do_late_resume(pwrpriv, _TRUE);
+		} else {
 			rtw_resume_lock_suspend();
 			ret = rtw_resume_process(padapter);
 			rtw_resume_unlock_suspend();
-		} else {
-#ifdef CONFIG_RESUME_IN_WORKQUEUE
-			rtw_resume_in_workqueue(pwrpriv);
-#else
-			if (rtw_is_earlysuspend_registered(pwrpriv)) {
-				/* jeff: bypass resume here, do in late_resume */
-				rtw_set_do_late_resume(pwrpriv, _TRUE);
-			} else {
-				rtw_resume_lock_suspend();
-				ret = rtw_resume_process(padapter);
-				rtw_resume_unlock_suspend();
-			}
-#endif
 		}
+#endif
 	}
 
 	pmlmeext->last_scan_time = rtw_get_current_time();
@@ -1116,124 +1065,6 @@ static int rtw_resume(struct usb_interface *pusb_intf)
 	return ret;
 }
 
-
-
-#ifdef CONFIG_AUTOSUSPEND
-void autosuspend_enter(_adapter *padapter)
-{
-	struct dvobj_priv *dvobj = adapter_to_dvobj(padapter);
-	struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(dvobj);
-
-	RTW_INFO("==>autosuspend_enter...........\n");
-
-	pwrpriv->bInternalAutoSuspend = _TRUE;
-	pwrpriv->bips_processing = _TRUE;
-
-	if (rf_off == pwrpriv->change_rfpwrstate) {
-#ifndef	CONFIG_BT_COEXIST
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35))
-		usb_enable_autosuspend(dvobj->pusbdev);
-#else
-		dvobj->pusbdev->autosuspend_disabled = 0;/* autosuspend disabled by the user */
-#endif
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 33))
-		usb_autopm_put_interface(dvobj->pusbintf);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 20))
-		usb_autopm_enable(dvobj->pusbintf);
-#else
-		usb_autosuspend_device(dvobj->pusbdev, 1);
-#endif
-#else	/* #ifndef	CONFIG_BT_COEXIST */
-		if (1 == pwrpriv->autopm_cnt) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35))
-			usb_enable_autosuspend(dvobj->pusbdev);
-#else
-			dvobj->pusbdev->autosuspend_disabled = 0;/* autosuspend disabled by the user */
-#endif
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 33))
-			usb_autopm_put_interface(dvobj->pusbintf);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 20))
-			usb_autopm_enable(dvobj->pusbintf);
-#else
-			usb_autosuspend_device(dvobj->pusbdev, 1);
-#endif
-			pwrpriv->autopm_cnt--;
-		} else
-			RTW_INFO("0!=pwrpriv->autopm_cnt[%d]   didn't usb_autopm_put_interface\n", pwrpriv->autopm_cnt);
-
-#endif	/* #ifndef	CONFIG_BT_COEXIST */
-	}
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32))
-	RTW_INFO("...pm_usage_cnt(%d).....\n", atomic_read(&(dvobj->pusbintf->pm_usage_cnt)));
-#else
-	RTW_INFO("...pm_usage_cnt(%d).....\n", dvobj->pusbintf->pm_usage_cnt);
-#endif
-
-}
-
-int autoresume_enter(_adapter *padapter)
-{
-	int result = _SUCCESS;
-	struct security_priv *psecuritypriv = &(padapter->securitypriv);
-	struct mlme_ext_priv	*pmlmeext = &padapter->mlmeextpriv;
-	struct mlme_ext_info	*pmlmeinfo = &(pmlmeext->mlmext_info);
-	struct dvobj_priv *dvobj = adapter_to_dvobj(padapter);
-	struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(dvobj);
-
-	RTW_INFO("====> autoresume_enter\n");
-
-	if (rf_off == pwrpriv->rf_pwrstate) {
-		pwrpriv->ps_flag = _FALSE;
-#ifndef	CONFIG_BT_COEXIST
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 33))
-		if (usb_autopm_get_interface(dvobj->pusbintf) < 0) {
-			RTW_INFO("can't get autopm: %d\n", result);
-			result = _FAIL;
-			goto error_exit;
-		}
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 20))
-		usb_autopm_disable(dvobj->pusbintf);
-#else
-		usb_autoresume_device(dvobj->pusbdev, 1);
-#endif
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32))
-		RTW_INFO("...pm_usage_cnt(%d).....\n", atomic_read(&(dvobj->pusbintf->pm_usage_cnt)));
-#else
-		RTW_INFO("...pm_usage_cnt(%d).....\n", dvobj->pusbintf->pm_usage_cnt);
-#endif
-#else	/* #ifndef	CONFIG_BT_COEXIST */
-		pwrpriv->bAutoResume = _TRUE;
-		if (0 == pwrpriv->autopm_cnt) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 33))
-			if (usb_autopm_get_interface(dvobj->pusbintf) < 0) {
-				RTW_INFO("can't get autopm: %d\n", result);
-				result = _FAIL;
-				goto error_exit;
-			}
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 20))
-			usb_autopm_disable(dvobj->pusbintf);
-#else
-			usb_autoresume_device(dvobj->pusbdev, 1);
-#endif
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32))
-			RTW_INFO("...pm_usage_cnt(%d).....\n", atomic_read(&(dvobj->pusbintf->pm_usage_cnt)));
-#else
-			RTW_INFO("...pm_usage_cnt(%d).....\n", dvobj->pusbintf->pm_usage_cnt);
-#endif
-			pwrpriv->autopm_cnt++;
-		} else
-			RTW_INFO("0!=pwrpriv->autopm_cnt[%d]   didn't usb_autopm_get_interface\n", pwrpriv->autopm_cnt);
-#endif /* #ifndef	CONFIG_BT_COEXIST */
-	}
-	RTW_INFO("<==== autoresume_enter\n");
-error_exit:
-
-	return result;
-}
-#endif
 
 #ifdef CONFIG_PLATFORM_RTD2880B
 extern void rtd2885_wlan_netlink_sendMsg(char *action_string, char *name);
@@ -1318,33 +1149,6 @@ _adapter *rtw_usb_primary_adapter_init(struct dvobj_priv *dvobj,
 	}
 #endif
 #endif
-
-#ifdef CONFIG_AUTOSUSPEND
-	if (padapter->registrypriv.power_mgnt != PS_MODE_ACTIVE) {
-		if (padapter->registrypriv.usbss_enable) {	/* autosuspend (2s delay) */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 38))
-			dvobj->pusbdev->dev.power.autosuspend_delay = 0 * HZ;/* 15 * HZ; idle-delay time */
-#else
-			dvobj->pusbdev->autosuspend_delay = 0 * HZ;/* 15 * HZ; idle-delay time */
-#endif
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35))
-			usb_enable_autosuspend(dvobj->pusbdev);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 22) && LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 34))
-			padapter->bDisableAutosuspend = dvobj->pusbdev->autosuspend_disabled ;
-			dvobj->pusbdev->autosuspend_disabled = 0;/* autosuspend disabled by the user */
-#endif
-
-			/* usb_autopm_get_interface(adapter_to_dvobj(padapter)->pusbintf ); */ /* init pm_usage_cnt ,let it start from 1 */
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32))
-			RTW_INFO("%s...pm_usage_cnt(%d).....\n", __FUNCTION__, atomic_read(&(dvobj->pusbintf->pm_usage_cnt)));
-#else
-			RTW_INFO("%s...pm_usage_cnt(%d).....\n", __FUNCTION__, dvobj->pusbintf->pm_usage_cnt);
-#endif
-		}
-	}
-#endif
 	/* 2012-07-11 Move here to prevent the 8723AS-VAU BT auto suspend influence */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 33))
 	if (usb_autopm_get_interface(pusb_intf) < 0)
@@ -1396,7 +1200,7 @@ static void rtw_usb_primary_adapter_deinit(_adapter *padapter)
 
 	RTW_INFO(FUNC_ADPT_FMT"\n", FUNC_ADPT_ARG(padapter));
 
-	if (check_fwstate(pmlmepriv, _FW_LINKED))
+	if (check_fwstate(pmlmepriv, WIFI_ASOC_STATE))
 		rtw_disassoc_cmd(padapter, 0, RTW_CMDF_DIRECTLY);
 
 #ifdef CONFIG_AP_MODE
@@ -1608,7 +1412,7 @@ static void rtw_dev_remove(struct usb_interface *pusb_intf)
 extern int console_suspend_enabled;
 #endif
 
-static int rtw_drv_entry(void)
+static int __init rtw_drv_entry(void)
 {
 	int ret = 0;
 
@@ -1631,6 +1435,10 @@ static int rtw_drv_entry(void)
 	usb_drv.drv_registered = _TRUE;
 	rtw_suspend_lock_init();
 	rtw_drv_proc_init();
+	rtw_nlrtw_init();
+#ifdef CONFIG_PLATFORM_CMAP_INTFS
+	cmap_intfs_init();
+#endif
 	rtw_ndev_notifier_register();
 	rtw_inetaddr_notifier_register();
 
@@ -1640,6 +1448,10 @@ static int rtw_drv_entry(void)
 		usb_drv.drv_registered = _FALSE;
 		rtw_suspend_lock_uninit();
 		rtw_drv_proc_deinit();
+		rtw_nlrtw_deinit();
+#ifdef CONFIG_PLATFORM_CMAP_INTFS
+		cmap_intfs_deinit();
+#endif
 		rtw_ndev_notifier_unregister();
 		rtw_inetaddr_notifier_unregister();
 		goto exit;
@@ -1650,7 +1462,7 @@ exit:
 	return ret;
 }
 
-static void rtw_drv_halt(void)
+static void __exit rtw_drv_halt(void)
 {
 	RTW_PRINT("module exit start\n");
 
@@ -1662,6 +1474,10 @@ static void rtw_drv_halt(void)
 
 	rtw_suspend_lock_uninit();
 	rtw_drv_proc_deinit();
+	rtw_nlrtw_deinit();
+#ifdef CONFIG_PLATFORM_CMAP_INTFS
+	cmap_intfs_deinit();
+#endif
 	rtw_ndev_notifier_unregister();
 	rtw_inetaddr_notifier_unregister();
 
@@ -1670,51 +1486,5 @@ static void rtw_drv_halt(void)
 	rtw_mstat_dump(RTW_DBGDUMP);
 }
 
-
-
-int rockchip_wifi_init_module_rtkwifi(void) {
-#ifdef CONFIG_WIFI_LOAD_DRIVER_WHEN_KERNEL_BOOTUP
-	int type = get_wifi_chip_type();
-	if (type < WIFI_AP6XXX_SERIES || type == WIFI_ESP8089) return 0;
-#endif 
-	printk("\n");
-	printk("=======================================================\n");
-	printk("==== Launching WI-FI driver! (Powered by Rockchip) ====\n");
-	printk("=======================================================\n");
-	
-	rockchip_wifi_power(1);
-	rockchip_wifi_set_carddetect(1);
-
-	return rtw_drv_entry();
-}
-
-void rockchip_wifi_exit_module_rtkwifi(void) {
-#ifdef CONFIG_WIFI_LOAD_DRIVER_WHEN_KERNEL_BOOTUP
-	int type = get_wifi_chip_type();
-	if (type < WIFI_AP6XXX_SERIES || type == WIFI_ESP8089) return 0;
-#endif
-	printk("\n");
-	printk("=======================================================\n");
-	printk("==== Dislaunching WI-FI driver! (Powered by Rockchip) ====\n");
-	printk("=======================================================\n");
-
-	rtw_drv_halt();
-
-	rockchip_wifi_set_carddetect(0);
-	rockchip_wifi_power(0);
-}
-
-#ifdef CONFIG_WIFI_BUILD_MODULE
-module_init(rockchip_wifi_init_module_rtkwifi);
-module_exit(rockchip_wifi_exit_module_rtkwifi);
-#else
-#ifdef CONFIG_WIFI_LOAD_DRIVER_WHEN_KERNEL_BOOTUP
-late_initcall(rockchip_wifi_init_module_rtkwifi);
-module_exit(rockchip_wifi_exit_module_rtkwifi);
-#else
-EXPORT_SYMBOL(rockchip_wifi_init_module_rtkwifi);
-EXPORT_SYMBOL(rockchip_wifi_exit_module_rtkwifi);
-#endif
-#endif
-// module_init(rtw_drv_entry);
-// module_exit(rtw_drv_halt);
+module_init(rtw_drv_entry);
+module_exit(rtw_drv_halt);

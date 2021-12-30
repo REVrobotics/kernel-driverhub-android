@@ -196,7 +196,7 @@
 		rockchip,uboot-charge-on = <1>;             // 是否开启U-Boot充电
 		rockchip,android-charge-on = <0>;           // 是否开启Android充电
 		rockchip,uboot-exit-charge-level = <2>;     // U-Boot充电时,允许开机的最低电量
-		rockchip,uboot-exit-charge-voltage = <3650>;// U-Boot充电时,允许开机的最低电压
+		rockchip,uboot-exit-charge-voltage = <3420>;// U-Boot充电时,允许开机的最低电压
 		rockchip,screen-on-voltage = <0>;        // U-Boot充电时,允许点亮屏幕的最低电压
 		rockchip,uboot-low-power-voltage = <0>;  // U-Boot无条件强制进入充电模式的最低电压
 		rockchip,system-suspend = <1>;              // 是否灭屏时进入trust低功耗待机(要ATF支持)
@@ -259,6 +259,13 @@
         led_b{
             gpios = <&gpio1 RK_PD1 GPIO_ACTIVE_HIGH>;
             linux,default-trigger = "heartbeat";
+            default-state = "on";
+            retain-state-suspended;
+        };
+
+        led_power{
+            gpios = <&gpio2 RK_PB4 GPIO_ACTIVE_HIGH>;
+            linux,default-trigger = "backlight";
             default-state = "on";
             retain-state-suspended;
         };
@@ -637,14 +644,18 @@
 			design_capacity = <3915>;
 			design_qmax = <4306>;
 			 power_off_thresd = <3500>;*/
-			ocv_table = <3400 3432 3475 3533 3572
+			/*ocv_table = <3400 3432 3475 3533 3572
                          3600 3629 3666 3708 3743
                          3767 3800 3838 3877 3920
-                         3968 4010 4056 4098 4148 4197>;
-			design_capacity = <4412>;
-			design_qmax = <4853>;
+                         3968 4010 4056 4098 4148 4197>;*/
+			ocv_table = <3400 3444 3480 3522 3569
+			 3608 3648 3684 3719 3754
+			 3789 3826 3876 3910 3945
+			 3989 4032 4058 4072 4093 4159>;
+			design_capacity = <5600>;
+			design_qmax = <5544>;
 			power_off_thresd = <3400>;
-			bat_res = <132>;
+			bat_res = <137>;
 			sleep_enter_current = <300>;
 			sleep_exit_current = <300>;
 			sleep_filter_current = <100>;
@@ -677,11 +688,11 @@
 		reg = <0x1d>;
 		type = <SENSOR_TYPE_ACCEL>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&mma8452_int1>,<&mma8452_int2>;
+		pinctrl-0 = <&mma8452_int1>;
 		irq-gpio = <&gpio2 RK_PB0 IRQ_TYPE_LEVEL_LOW>;
 		irq_enable = <1>;
 		poll_delay_ms = <30>;
-		layout = <3>;
+		layout = <1>;
     };
 };
 
@@ -700,7 +711,7 @@
 		max-x = <800>;
 		max-y = <480>;
 		tp-size = <912>;			// 89 101 911 912:lx
-		revert-x-y = <3>;			// 1: revert x, 2: revert y, 3: revert both x & y
+		revert-x-y = <0>;			// 1: revert x, 2: revert y, 3: revert both x & y
 	};
 
     hym8563: hym8563@51 {
@@ -906,9 +917,6 @@
 	mma8452{
 		mma8452_int1: mma8452-int1{
 			rockchip,pins = <2 RK_PB0 RK_FUNC_GPIO &pcfg_pull_up>;
-		};
-		mma8452_int2: mma8452-int2{
-			rockchip,pins = <2 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
 

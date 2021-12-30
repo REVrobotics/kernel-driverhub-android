@@ -245,7 +245,8 @@ EXPORT_SYMBOL_GPL(suspend_set_ops);
  */
 int suspend_valid_only_mem(suspend_state_t state)
 {
-	return state == PM_SUSPEND_MEM;
+	//return state == PM_SUSPEND_MEM;
+	return state == PM_SUSPEND_TO_IDLE;
 }
 EXPORT_SYMBOL_GPL(suspend_valid_only_mem);
 
